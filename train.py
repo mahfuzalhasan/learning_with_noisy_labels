@@ -16,7 +16,7 @@ import time
 import parameters as params
 from dataset import Dataset
 from model import CNN
-from loss import loss_coteaching
+from loss import loss_class_mean
 
 
 
@@ -47,24 +47,14 @@ def accuracy(logit, target, topk=(1,)):
 
 
 def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_loader, model1, optimizer1):
-    #print('Training %s...' % model_str)
+
 
     pure_ratio_1_list=[]
-    pure_ratio_2_list=[]
-
     loss_net_1 = []
-    loss_net_2 = []
-
     accuracy_net_1 = []
-    accuracy_net_2 = []
-    
     train_total=0
     train_correct=0 
     
-    train_total2=0
-    train_correct2=0 
-
-
     start_time = time.time()
     for i, (images, labels, indexes) in enumerate(train_loader):
       
@@ -74,11 +64,8 @@ def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_lo
             images = images.float().cuda()
             labels = labels.cuda()
       
-        # Forward + Backward + Optimize
-        logits1, embeddings1 = model1(images)
         
-        # print('logits1: ',logits1)
-        # print('logit1 size: ',logits1.size())
+        logits1, embeddings1 = model1(images)
         
         prec1,_ = accuracy(logits1, labels, topk=(1, 5))
         accuracy_net_1.append(prec1.item())
@@ -86,38 +73,15 @@ def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_lo
         train_total+=1
         train_correct+=prec1
 
-        '''
-        logits2 = model2(images)
-        
-        print('logits2: ',logits2)
-        print('logit2 size: ',logits2.size())
+        loss_1, pure_ratio_1 = loss_class_mean(logits1, labels, rate_schedule[epoch], ind, noise_or_not, embeddings1, epoch) 
 
-        prec2,_ = accuracy(logits2, labels, topk=(1, 5))
-        accuracy_net_2.append(prec2.item())
-        train_total2+=1
-        train_correct2+=prec2
-        '''
-
-        loss_1, pure_ratio_1 = loss_coteaching(logits1, labels, rate_schedule[epoch], ind, noise_or_not, embeddings1, epoch) 
-
-        #exit()
         pure_ratio_1_list.append(100*pure_ratio_1)
-        #pure_ratio_2_list.append(100*pure_ratio_2)
-
-
+        
         optimizer1.zero_grad()
         loss_1.backward()
         optimizer1.step()
 
-        '''
-        optimizer2.zero_grad()
-        loss_2.backward()
-        optimizer2.step()
-        '''
-
         loss_net_1.append(loss_1.item())
-        #loss_net_2.append(loss_2.item())
-
 
         if i % params.print_freq == 0:
             print ('Epoch [%d/%d], Batch [%d] Training Accuracy1: %.4F, Loss1: %.4f, Pure Ratio1: %.4f' 
@@ -144,16 +108,11 @@ def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_lo
         }
         torch.save(states, save_file_path)
 
-    
-    
     writer.add_scalar('Training Loss 1', np.mean(loss_net_1), epoch)
-    #writer.add_scalar('Training Loss 2', np.mean(loss_net_2), epoch)
     writer.add_scalar('Training Accuracy 1', np.mean(accuracy_net_1), epoch)
-    #writer.add_scalar('Training Accuracy 2', np.mean(accuracy_net_2), epoch)
     
 
     return np.mean(accuracy_net_1), pure_ratio_1_list, model1
-
 
 def evaluate(run_id, use_cuda, epoch, writer, test_loader, model1):
     
@@ -183,37 +142,12 @@ def evaluate(run_id, use_cuda, epoch, writer, test_loader, model1):
         total1 += labels.size(0)
         correct1 += (pred1.cpu() == labels).sum()
 
-
-        '''
-        model2.eval()
-        correct2 = 0
-        total2 = 0
-        '''
-
-    '''
-    for i, (images, labels, indexes) in enumerate(test_loader):
-
-        if use_cuda:
-            images = images.float().cuda()
-            #labels = labels.float().cuda()
-    
-        
-        logits2 = model2(images)
-        outputs2 = F.softmax(logits2, dim=1)
-        _, pred2 = torch.max(outputs2.data, 1)
-
-        total2 += labels.size(0)
-        correct2 += (pred2.cpu() == labels).sum()   
-        
-    '''
     acc1 = float(correct1)/float(total1)
-    #acc2 = float(correct2)/float(total2)
+
 
     time_taken = time.time() - start_time
     print('epoch ',epoch,' time taken: ',time_taken, '  Acc1: ',acc1)
-        
     writer.add_scalar('Validation Accuracy 1', acc1, epoch)
-    #writer.add_scalar('Validation Accuracy 2', acc2, epoch)
     
 
 
@@ -251,10 +185,10 @@ def train_classifier(run_id, use_cuda):
     # define drop rate schedule
     rate_schedule = np.ones(params.n_epoch) * forget_rate
     rate_schedule[:params.num_gradual] = np.linspace(0, forget_rate**params.exponent, params.num_gradual)
-    print('rate_schedule: ',rate_schedule)
+    #print('rate_schedule: ',rate_schedule)
 
 
-    saved_model = '/home/student/Documents/Fall 2019/CAP5610: ML/Project/noisy_label/models/04-12-19_2115/model_199.pth'
+    saved_model = None
     cnn1 = CNN(input_channel=dataset_info.input_channel, n_outputs=dataset_info.num_classes)
     if saved_model is not None:
         cnn1.load_state_dict(torch.load(saved_model)['state_dict1'])
@@ -263,17 +197,7 @@ def train_classifier(run_id, use_cuda):
     if use_cuda:
         cnn1.cuda()
 
-
     optimizer1 = torch.optim.Adam(cnn1.parameters(), lr=params.learning_rate)
-    optimizer1.load_state_dict(torch.load(saved_model)['optimizer1'])
-
-
-    '''
-    cnn2 = CNN(input_channel=dataset_info.input_channel, n_outputs=dataset_info.num_classes)
-    if use_cuda:
-        cnn2.cuda()
-    optimizer2 = torch.optim.Adam(cnn2.parameters(), lr=params.learning_rate)
-    '''
 
 
     for epoch in range(params.n_epoch):

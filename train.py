@@ -84,7 +84,7 @@ def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_lo
         loss_net_1.append(loss_1.item())
 
         if i % params.print_freq == 0:
-            print ('Epoch [%d/%d], Batch [%d] Training Accuracy1: %.4F, Loss1: %.4f, Pure Ratio1: %.4f' 
+            print ('Epoch [%d/%d], Batch [%d] Training Accuracy1: %.4F, Loss1: %.4f, Pure Ratio: %.4f' 
                   %(epoch, params.n_epoch, i, np.mean(accuracy_net_1), np.mean(loss_net_1), \
                     np.mean(pure_ratio_1_list)))
 
@@ -114,11 +114,11 @@ def train(run_id, use_cuda, epoch, rate_schedule, noise_or_not, writer, train_lo
 
     return np.mean(accuracy_net_1), pure_ratio_1_list, model1
 
-def evaluate(run_id, use_cuda, epoch, writer, test_loader, model1):
+def evaluate(run_id, use_cuda, epoch, writer, test_loader, model):
     
-    model1.eval()
-    correct1 = 0
-    total1 = 0
+    model.eval()
+    correct = 0
+    total = 0
     
     start_time = time.time()
     
@@ -132,22 +132,22 @@ def evaluate(run_id, use_cuda, epoch, writer, test_loader, model1):
         
         
         # Forward + Backward + Optimize
-        logits1, _ = model1(images)
+        logits, _ = model(images)
 
 
-        outputs1 = F.softmax(logits1, dim=1)
-        _, pred1 = torch.max(outputs1.data, 1)
+        outputs = F.softmax(logits, dim=1)
+        _, pred = torch.max(outputs.data, 1)
 
 
-        total1 += labels.size(0)
-        correct1 += (pred1.cpu() == labels).sum()
+        total += labels.size(0)
+        correct += (pred.cpu() == labels).sum()
 
-    acc1 = float(correct1)/float(total1)
+    acc = float(correct)/float(total)
 
 
     time_taken = time.time() - start_time
-    print('epoch ',epoch,' time taken: ',time_taken, '  Acc1: ',acc1)
-    writer.add_scalar('Validation Accuracy 1', acc1, epoch)
+    print('epoch ',epoch,' time taken: ',time_taken, '  Acc: ',acc)
+    writer.add_scalar('Validation Accuracy ', acc, epoch)
     
 
 
